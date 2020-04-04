@@ -1,0 +1,99 @@
+#!/usr/bin/env python
+#Author: Richard T Swierk
+#Date: 04/4/2020
+
+
+from scapy.all import *
+import psutil
+import os
+import time
+import random
+import threading
+
+Moniface=" "
+
+#Get interface names
+def getIfaces():
+        addrs=psutil.net_if_addrs()
+        return addrs.keys()
+
+ifaceInMon=False
+
+def checkForMon():
+        ifaces=getIfaces()
+        global ifaceInMon
+        global Moniface
+        ifaceInMon=False
+        for x in ifaces:
+                f=os.popen('iwconfig '+x+' | grep Mode:')
+                ifaceInfo=f.read()
+                if "Mode:Monitor" in ifaceInfo:
+                        ifaceInMon=True
+                        Moniface=x
+
+def makeMon(inetface):
+        os.system("sudo ifconfig "+inetface+" down")
+        os.system("sudo iwconfig "+inetface+" mode monitor")
+        os.system("sudo ifconfig "+inetface+" up")
+        checkForMon()
+        if ifaceInMon==False:
+                print("That did not work. "+inetface+" could not be out in Monitor mode.\nPick a different interface.")
+        else:
+                print(inetface+" is now in monitor mode")
+
+def pickIface():
+        inetEnteredCorrect=False
+        if ifaceInMon==False:
+                ifaces=getIfaces()
+                print(ifaces)
+                inetface=raw_input("Enter the name of the interface to put into Monitor mode: ")
+                for i in ifaces:
+                        if inetface==i:
+                                inetEnteredCorrect=True
+                if inetEnteredCorrect==False:
+                        pickIface()
+                else:
+                        makeMon(inetface)
+                        if ifaceInMon==False:
+                                pickIface()
+
+def turnOffMonitor():
+        os.system("sudo ifconfig "+Moniface+" down")
+        os.system("sudo iwconfig "+Moniface+" mode Managed")
+        os.system("sudo ifconfig "+Moniface+" up")
+        checkForMon()
+        if ifaceInMon==False:
+                print(Moniface+" is no longer in Monitor mode")
+        else:
+                print("Was not able to put "+Moniface+" back into Managed mode")
+
+def hopper(iface):
+    n = 1
+    stop_hopper = False
+    while not stop_hopper:
+        time.sleep(0.50)
+        os.system('iwconfig %s channel %d' % (iface, n))
+        dig = int(random.random() * 14)
+        if dig != 0 and dig != n:
+            n = dig
+
+F_bssids = []    # Found BSSIDs
+def findSSID(pkt):
+    if pkt.haslayer(Dot11Beacon):
+       if pkt.getlayer(Dot11).addr2 not in F_bssids:
+           F_bssids.append(pkt.getlayer(Dot11).addr2)
+           ssid = pkt.getlayer(Dot11Elt).info
+           if ssid == '' or pkt.getlayer(Dot11Elt).ID != 0:
+               print "Hidden Network Detected"
+           print "Network Detected: %s" % (ssid)
+
+checkForMon()
+if ifaceInMon==False:
+        pickIface()
+thread = threading.Thread(target=hopper, args=(Moniface, ), name="hopper")
+thread.daemon = True
+thread.start()
+
+sniff(iface=Moniface, prn=findSSID)
+
+turnOffMonitor()
